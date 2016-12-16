@@ -41,24 +41,26 @@ CNTKTextFormatReader::CNTKTextFormatReader(const ConfigParameters& config)
         {
             // Verbosity is a general config parameter, not specific to the text format reader.
             int verbosity = config(L"verbosity", 0);
-            m_sequenceEnumerator = make_shared<BlockRandomizer>(verbosity, window, m_deserializer, true);
+            m_sequenceEnumerator = make_shared<BlockRandomizer>(verbosity, window, m_deserializer, true, false, false);
         }
         else
         {
-            m_sequenceEnumerator = make_shared<NoRandomizer>(m_deserializer);
+            m_sequenceEnumerator = make_shared<NoRandomizer>(m_deserializer, false, false);
         }
 
         if (configHelper.IsInFrameMode()) 
         {
             m_packer = std::make_shared<FramePacker>(
                 m_sequenceEnumerator,
-                ReaderBase::GetStreamDescriptions());
+                ReaderBase::GetStreamDescriptions(),
+                false);
         }
         else
         {
             m_packer = std::make_shared<SequencePacker>(
                 m_sequenceEnumerator,
-                ReaderBase::GetStreamDescriptions());
+                ReaderBase::GetStreamDescriptions(),
+                false);
         }
     }
     catch (const std::runtime_error& e)

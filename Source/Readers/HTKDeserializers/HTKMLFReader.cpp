@@ -113,11 +113,11 @@ HTKMLFReader::HTKMLFReader(const ConfigParameters& readerConfig)
     // TODO: this should be bool. Change when config per deserializer is allowed.
     if (AreEqualIgnoreCase(readMethod, std::wstring(L"blockRandomize")))
     {
-        m_sequenceEnumerator = std::make_shared<BlockRandomizer>(verbosity, window, bundler, true  /* should Prefetch */, true /* useLegacyRandomization */);
+        m_sequenceEnumerator = std::make_shared<BlockRandomizer>(verbosity, window, bundler, true  /* should Prefetch */, false, false);
     }
     else if (AreEqualIgnoreCase(readMethod, std::wstring(L"none")))
     {
-        m_sequenceEnumerator = std::make_shared<NoRandomizer>(bundler);
+        m_sequenceEnumerator = std::make_shared<NoRandomizer>(bundler, false, false);
     }
     else
     {
@@ -152,10 +152,10 @@ HTKMLFReader::HTKMLFReader(const ConfigParameters& readerConfig)
     switch (m_packingMode)
     {
     case PackingMode::sample:
-        m_packer = std::make_shared<FramePacker>(m_sequenceEnumerator, m_streams);
+        m_packer = std::make_shared<FramePacker>(m_sequenceEnumerator, m_streams, false);
         break;
     case PackingMode::sequence:
-        m_packer = std::make_shared<SequencePacker>(m_sequenceEnumerator, m_streams);
+        m_packer = std::make_shared<SequencePacker>(m_sequenceEnumerator, m_streams, false);
         break;
     case PackingMode::truncated:
         m_packer = std::make_shared<TruncatedBPTTPacker>(m_sequenceEnumerator, m_streams);

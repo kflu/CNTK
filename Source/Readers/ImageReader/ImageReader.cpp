@@ -52,7 +52,7 @@ ImageReader::ImageReader(const ConfigParameters& config)
     }
     else
     {
-        randomizer = std::make_shared<NoRandomizer>(deserializer, multithreadedGetNextSequences);
+        randomizer = std::make_shared<NoRandomizer>(deserializer, useLocalTimeline, multithreadedGetNextSequences);
     }
 
     // Create transformations for a single feature stream.

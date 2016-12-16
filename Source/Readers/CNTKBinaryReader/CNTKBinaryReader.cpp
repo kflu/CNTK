@@ -53,11 +53,12 @@ CNTKBinaryReader::CNTKBinaryReader(const ConfigParameters& config)
         else
         {
             log += " | without randomization";
-            m_sequenceEnumerator = std::make_shared<NoRandomizer>(m_deserializer);
+            m_sequenceEnumerator = std::make_shared<NoRandomizer>(m_deserializer, false, false);
         }
 
-        m_packer = std::make_shared<SequencePacker>( m_sequenceEnumerator,
-                                                     ReaderBase::GetStreamDescriptions());
+        m_packer = std::make_shared<SequencePacker>(m_sequenceEnumerator,
+                                                    ReaderBase::GetStreamDescriptions(),
+                                                    false);
     }
     catch (const std::runtime_error& e)
     {

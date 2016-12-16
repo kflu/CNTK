@@ -18,7 +18,7 @@ namespace Microsoft { namespace MSR { namespace CNTK {
 class NoRandomizer : public SequenceEnumerator
 {
 public:
-    NoRandomizer(IDataDeserializerPtr deserializer, bool multithreadedGetNextSequences = false);
+    NoRandomizer(IDataDeserializerPtr deserializer, bool useLocalTimeline, bool multithreadedGetNextSequences);
 
     virtual void StartEpoch(const EpochConfiguration& config) override;
     virtual Sequences GetNextSequences(size_t sampleCount) override;
@@ -35,7 +35,6 @@ public:
 private:
     // Gets next sequence descriptions with total size less than sampleCount.
     void GetNextSequenceDescriptions(size_t sampleCount, std::vector<SequenceDescription>& result);
-    std::vector<SequenceDescription> GetNextSequenceDescriptions(size_t sampleCount);
 
     // Get chunk index for the sample offset from the beginning of the sweep.
     ChunkIdType GetChunkIndexOf(size_t samplePosition);

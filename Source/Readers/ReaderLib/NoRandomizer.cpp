@@ -12,13 +12,14 @@
 
 namespace Microsoft { namespace MSR { namespace CNTK {
 
-NoRandomizer::NoRandomizer(IDataDeserializerPtr deserializer, bool multithreadedGetNextSequences)
+NoRandomizer::NoRandomizer(IDataDeserializerPtr deserializer, bool useLocalTimeline, bool multithreadedGetNextSequences)
     : m_deserializer(deserializer),
       m_currentChunkPosition(CHUNKID_MAX),
       m_globalSamplePosition(0),
       m_globalSequencePosition(0),
       m_totalNumberOfSamples(0),
       m_currentSequencePositionInChunk(0),
+      m_useLocalTimeline(useLocalTimeline),
       m_multithreadedGetNextSequences(multithreadedGetNextSequences)
 {
     assert(deserializer != nullptr);

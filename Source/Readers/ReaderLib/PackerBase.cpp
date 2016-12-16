@@ -52,15 +52,23 @@ void PackerBase::SetConfiguration(const ReaderConfiguration& config, const std::
     m_config = config;
     if (m_config.m_minibatchSizeInSamples == 0)
         LogicError("Minibatch size cannot be zero.");
+
+    if (m_useLocalTimeline)
+    {
+        bool shouldAddOneSample = m_config.m_minibatchSizeInSamples % m_config.m_numberOfWorkers > m_config.m_workerRank;
+        m_config.m_minibatchSizeInSamples = (int)m_config.m_minibatchSizeInSamples / (int)m_config.m_numberOfWorkers + (shouldAddOneSample ? 1 : 0);
+    }
 }
 
 PackerBase::PackerBase(SequenceEnumeratorPtr sequenceEnumerator,
     const std::vector<StreamDescriptionPtr>& streams,
+    bool useLocalTimeline,
     size_t numberOfBuffers) :
     m_sequenceEnumerator(sequenceEnumerator),
     m_outputStreamDescriptions(streams),
     m_numberOfBuffers(numberOfBuffers),
-    m_currentBufferIndex(0)
+    m_currentBufferIndex(0),
+    m_useLocalTimeline(useLocalTimeline)
 {
     assert(m_numberOfBuffers >= 1);
     m_inputStreamDescriptions = sequenceEnumerator->GetStreamDescriptions();

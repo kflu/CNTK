@@ -118,13 +118,11 @@ CompositeDataReader::CompositeDataReader(const ConfigParameters& config) :
 
         randomizationWindow = config(L"randomizationWindow", randomizationWindow);
 
-        // By default using STL random number generator.
-        bool useLegacyRandomization = config(L"useLegacyRandomization", false);
-        m_sequenceEnumerator = std::make_shared<BlockRandomizer>(verbosity, randomizationWindow, deserializer, true /* should Prefetch */, useLegacyRandomization, multiThreadedDeserialization);
+        m_sequenceEnumerator = std::make_shared<BlockRandomizer>(verbosity, randomizationWindow, deserializer, true /* should Prefetch */, localTimeline, multiThreadedDeserialization);
     }
     else
     {
-        m_sequenceEnumerator = std::make_shared<NoRandomizer>(deserializer, multiThreadedDeserialization);
+        m_sequenceEnumerator = std::make_shared<NoRandomizer>(deserializer, localTimeline, multiThreadedDeserialization);
     }
 
     // In case when there are transforms, applying them to the data.
@@ -157,7 +155,8 @@ CompositeDataReader::CompositeDataReader(const ConfigParameters& config) :
     case PackingMode::sequence:
         m_packer = std::make_shared<SequencePacker>(
             m_sequenceEnumerator,
-            m_streams);
+            m_streams,
+            localTimeline);
         break;
     case PackingMode::truncated:
     {

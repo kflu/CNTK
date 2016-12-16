@@ -40,8 +40,8 @@ public:
         size_t randomizationRangeInSamples,
         IDataDeserializerPtr deserializer,
         bool shouldPrefetch,
-        bool useLocalTimeline = false,
-        bool multithreadedGetNextSequences = false);
+        bool useLocalTimeline,
+        bool multithreadedGetNextSequences);
 
     // Starts a new epoch.
     virtual void StartEpoch(const EpochConfiguration& config) override;

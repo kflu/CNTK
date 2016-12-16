@@ -18,16 +18,11 @@ public:
         const std::vector<StreamDescriptionPtr>& streams,
         bool useLocalTimeline = false,
         size_t numberOfBuffers = 2) :
-        SequencePacker(sequenceEnumerator, streams, numberOfBuffers), m_useLocalTimeline(useLocalTimeline)
+        SequencePacker(sequenceEnumerator, streams, useLocalTimeline, numberOfBuffers)
     {}
 
 protected:
     MBLayoutPtr CreateMBLayout(const StreamBatch& batch) override;
-
-    Sequences GetNextSequences() override;
-
-private:
-    bool m_useLocalTimeline;
 };
 
 typedef std::shared_ptr<FramePacker> FramePackerPtr;
