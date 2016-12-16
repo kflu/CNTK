@@ -11,7 +11,7 @@ def map_if_possible(obj):
         # We can do this only if cntk_py and the cntk classes are already
         # known, which is the case, when map_if_possible is called. 
         from cntk.ops.variables import Variable, Parameter, Constant
-        from cntk.ops.functions import Function
+        from cntk.ops.functions import Function, UserFunction
         from cntk.learner import Learner
         from cntk.io import MinibatchSource, MinibatchData, StreamConfiguration
         from cntk.axis import Axis
@@ -22,6 +22,7 @@ def map_if_possible(obj):
                 cntk_py.Parameter: Parameter,
                 cntk_py.Constant: Constant,
                 cntk_py.Function: Function, 
+                cntk_py.UserFunction: UserFunction, 
                 cntk_py.Learner: Learner, 
                 cntk_py.Value: Value, 
                 cntk_py.MinibatchSource: MinibatchSource,
