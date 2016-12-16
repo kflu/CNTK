@@ -10,7 +10,6 @@
 #include "BlockRandomizer.h"
 #include <algorithm>
 #include <utility>
-#include <deque>
 
 #include "DataReader.h"
 #include "ExceptionCapture.h"
@@ -22,7 +21,7 @@ BlockRandomizer::BlockRandomizer(
     size_t randomizationRangeInSamples,
     IDataDeserializerPtr deserializer,
     bool shouldPrefetch,
-    bool useLegacyRandomization,
+    bool useLocalTimeline,
     bool multithreadedGetNextSequence)
     : m_verbosity(verbosity),
       m_deserializer(deserializer),
@@ -31,9 +30,10 @@ BlockRandomizer::BlockRandomizer(
       m_globalSamplePosition(SIZE_MAX),
       m_epochStartPosition(0),
       m_sweepTotalNumberOfSamples(0),
-      m_chunkRandomizer(std::make_shared<ChunkRandomizer>(deserializer, randomizationRangeInSamples, useLegacyRandomization)),
+      m_chunkRandomizer(std::make_shared<ChunkRandomizer>(deserializer, randomizationRangeInSamples)),
       m_multithreadedGetNextSequences(multithreadedGetNextSequence),
-      m_prefetchedChunk(CHUNKID_MAX)
+      m_prefetchedChunk(CHUNKID_MAX),
+      m_useLocalTimeline(useLocalTimeline)
 {
     assert(deserializer != nullptr);
 
@@ -116,19 +116,10 @@ Sequences BlockRandomizer::GetNextSequences(size_t sampleCount)
 {
     // Get next sequence descriptions.
     Sequences result;
-    std::vector<RandomizedSequenceDescription> sequences;
     ClosedOpenChunkInterval windowRange;
-    result.m_endOfEpoch = GetNextSequenceDescriptions(sampleCount, sequences, windowRange);
-    if (sequences.size() == 0)
-    {
-        return result;
-    }
-
-    // Decimate sequences.
-    std::vector<RandomizedSequenceDescription> decimated;
-    decimated.reserve(sequences.size());
-    Decimate(sequences, decimated);
-    if (decimated.size() == 0)
+    m_sequenceBuffer.clear();
+    result.m_endOfEpoch = GetNextSequenceDescriptions(sampleCount, m_sequenceBuffer, windowRange);
+    if (m_sequenceBuffer.size() == 0)
     {
         return result;
     }
@@ -136,17 +127,10 @@ Sequences BlockRandomizer::GetNextSequences(size_t sampleCount)
     // Retrieve new data chunks if required.
     LoadDataChunks(windowRange);
 
-    if (m_verbosity >= Debug)
-        fprintf(stderr, "BlockRandomizer::GetNextSequences(): getting %" PRIu64 " out of %" PRIu64 " sequences for %" PRIu64 " requested samples in sweep %" PRIu64 "\n",
-            decimated.size(),
-            sequences.size(),
-            sampleCount,
-            m_sweep);
-
-    result.m_data.resize(m_streams.size(), std::vector<SequenceDataPtr>(decimated.size()));
+    result.m_data.resize(m_streams.size(), std::vector<SequenceDataPtr>(m_sequenceBuffer.size()));
 
     auto process = [&](int i) -> void {
-        const auto& description = decimated[i];
+        const auto& description = m_sequenceBuffer[i];
         std::vector<SequenceDataPtr> sequence;
         auto it = m_chunks.find(description.m_chunk->m_original->m_id);
         if (it == m_chunks.end())
@@ -165,13 +149,13 @@ Sequences BlockRandomizer::GetNextSequences(size_t sampleCount)
     {
         ExceptionCapture capture;
 #pragma omp parallel for schedule(dynamic)
-        for (int i = 0; i < decimated.size(); ++i)
+        for (int i = 0; i < m_sequenceBuffer.size(); ++i)
             capture.SafeRun(process, i);
         capture.RethrowIfHappened();
     }
     else
     {
-        for (int i = 0; i < decimated.size(); ++i)
+        for (int i = 0; i < m_sequenceBuffer.size(); ++i)
             process(i);
     }
 
@@ -204,35 +188,42 @@ bool BlockRandomizer::GetNextSequenceDescriptions(size_t sampleCount, std::vecto
     assert(sampleCount != 0);
 
     // Randomizing sequences
-    result = m_sequenceRandomizer->GetNextSequenceDescriptions(sampleCount, windowRange);
+    std::function<bool(const RandomizedSequenceDescription* s)> localSequences;
+    if(m_useLocalTimeline)
+        localSequences = [this](const RandomizedSequenceDescription* s) { return s->m_chunk->m_chunkId % m_config.m_numberOfWorkers == m_config.m_workerRank; };
+    else
+        localSequences = [this](const RandomizedSequenceDescription*) { return true; };
 
-    size_t minibatchSize = 0; // the actual size of the current minibatch in samples
-    for (const auto& sequence : result)
-    {
-        minibatchSize += sequence.m_numberOfSamples;
-    }
+    size_t minibatchSize = m_sequenceRandomizer->GetNextSequenceDescriptions(
+        sampleCount,
+        localSequences,
+        windowRange,
+        result);
+
+    if (!m_useLocalTimeline)
+        Decimate(result);
+
+    if (m_verbosity >= Debug)
+        fprintf(stderr, "BlockRandomizer::GetNextSequenceDescriptions(): getting %" PRIu64 " sequences for %" PRIu64 " requested samples in sweep %" PRIu64 "\n",
+        result.size(),
+        minibatchSize,
+        m_sweep);
+
+    m_globalSamplePosition += minibatchSize;
 
     // return true if the current batch is last in an epoch.
-    return (m_globalSamplePosition + minibatchSize >= m_epochSize + m_epochStartPosition);
+    return m_globalSamplePosition >= m_epochSize + m_epochStartPosition;
 }
 
-// Decimates sequences and load/unloads chunks using infromation of the SequenceRandomizer.
-void BlockRandomizer::Decimate(const std::vector<RandomizedSequenceDescription>& all, std::vector<RandomizedSequenceDescription>& decimated)
+void BlockRandomizer::Decimate(std::vector<RandomizedSequenceDescription>& sequences)
 {
-    // Moving the cursor to the end of read sequences.
-    for (const auto& sequence : all)
+    size_t decimated = 0;
+    for (size_t i = 0; i < sequences.size(); ++i)
     {
-        m_globalSamplePosition += sequence.m_numberOfSamples;
+        if (sequences[i].m_chunk->m_chunkId % m_config.m_numberOfWorkers == m_config.m_workerRank)
+            sequences[decimated++] = sequences[i];
     }
-
-    decimated.reserve(all.size());
-    for (const auto& sequence : all)
-    {
-        if (sequence.m_chunk->m_chunkId % m_config.m_numberOfWorkers == m_config.m_workerRank)
-        {
-            decimated.push_back(sequence);
-        }
-    }
+    sequences.resize(decimated);
 }
 
 // Retrieves chunk data based on the window information provided by SequenceRandomizer

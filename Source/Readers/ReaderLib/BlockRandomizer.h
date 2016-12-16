@@ -40,7 +40,7 @@ public:
         size_t randomizationRangeInSamples,
         IDataDeserializerPtr deserializer,
         bool shouldPrefetch,
-        bool useLegacyRandomization = false,
+        bool useLocalTimeline = false,
         bool multithreadedGetNextSequences = false);
 
     // Starts a new epoch.
@@ -71,15 +71,14 @@ public:
     void SetConfiguration(const ReaderConfiguration& config) override;
 
 private:
+    void Decimate(std::vector<RandomizedSequenceDescription>& sequences);
+
     // Load data for chunks if needed.
     void LoadDataChunks(const ClosedOpenChunkInterval& windowRange);
 
     // Get next sequence descriptions that do not exceed sample count.
     // Returns true if epoch end is reached.
     bool GetNextSequenceDescriptions(size_t sampleCount, std::vector<RandomizedSequenceDescription>& result, ClosedOpenChunkInterval& windowRange);
-
-    // Decimates sequence descriptions and loads chunks of data.
-    void Decimate(const std::vector<RandomizedSequenceDescription>& all, std::vector<RandomizedSequenceDescription>& decimated);
 
     // Prepares a new sweep if needed.
     void PrepareNewSweepIfNeeded(size_t samplePosition);
@@ -149,6 +148,12 @@ private:
 
     // Current loaded chunks.
     ClosedOpenChunkInterval m_currentWindowRange;
+
+    // Sequence buffer, used to avoid reallocation only.
+    std::vector<RandomizedSequenceDescription> m_sequenceBuffer;
+
+    // Flag indicating whether to use local timeline.
+    bool m_useLocalTimeline;
 };
 
 }}}

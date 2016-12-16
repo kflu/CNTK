@@ -64,7 +64,11 @@ namespace Microsoft { namespace MSR { namespace CNTK {
     }
 
     // Gets next randomized sequence descriptions not exceeding the sample count.
-    std::vector<RandomizedSequenceDescription> SequenceRandomizer::GetNextSequenceDescriptions(size_t sampleCount, ClosedOpenChunkInterval& requiredChunks)
+    size_t SequenceRandomizer::GetNextSequenceDescriptions(
+        size_t sampleCount, 
+        const std::function<bool(const RandomizedSequenceDescription* s)>& isWorkerSequence,
+        ClosedOpenChunkInterval& requiredChunks,
+        std::vector<RandomizedSequenceDescription>& sequences)
     {
         int samples = (int)sampleCount;
 
@@ -72,39 +76,49 @@ namespace Microsoft { namespace MSR { namespace CNTK {
         requiredChunks.m_begin = (ChunkIdType)std::min(m_currentChunkCursor, m_randomizedChunks.size() - 1);
         requiredChunks.m_end = requiredChunks.m_begin + 1;
 
-        std::vector<RandomizedSequenceDescription> result;
-        result.reserve(sampleCount);
+        sequences.reserve(sampleCount);
 
         bool firstSequence = true;
-        while (samples > 0 && m_currentChunkCursor < m_randomizedChunks.size())
+        size_t totalSize = 0;
+        while (m_currentChunkCursor < m_randomizedChunks.size())
         {
             size_t sequenceOffsetInsideChunk = m_currentSequenceCursor - m_randomizedChunks[m_currentChunkCursor].m_sequencePositionStart;
             const RandomizedSequenceDescription* sequence = &m_sequenceWindow[m_currentChunkCursor - m_chunkWindowBegin][sequenceOffsetInsideChunk];
             int sequenceLength = (int)sequence->m_numberOfSamples;
+            bool shouldCount = isWorkerSequence(sequence);
 
-            if (firstSequence || samples >= sequenceLength)
+            if (shouldCount)
             {
-                requiredChunks.m_begin = std::min(m_randomizedChunks[m_currentChunkCursor].m_randomizationWindow.m_begin, requiredChunks.m_begin);
-                requiredChunks.m_end = std::max(m_randomizedChunks[m_currentChunkCursor].m_randomizationWindow.m_end, requiredChunks.m_end);
-
-                firstSequence = false;
-                result.push_back(*sequence);
-                m_currentSequenceCursor++;
-                m_currentSampleCursor += sequenceLength;
-
-                if (sequenceOffsetInsideChunk + 1 >= m_randomizedChunks[m_currentChunkCursor].m_original->m_numberOfSequences)
+                if (firstSequence || samples >= sequenceLength)
                 {
-                    // Moving to the next chunk,
-                    // Be careful, this invalidates the sequence from above.
-                    MoveChunkCursor();
+                    firstSequence = false;
+                    sequences.push_back(*sequence);
+                    samples -= sequenceLength;
+                }
+                else
+                {
+                    break;
                 }
             }
 
-            // Always decrease the available number of samples.
-            samples -= sequenceLength;
+            totalSize += sequenceLength;
+
+            // Update the required chunk window.
+            requiredChunks.m_begin = std::min(m_randomizedChunks[m_currentChunkCursor].m_randomizationWindow.m_begin, requiredChunks.m_begin);
+            requiredChunks.m_end = std::max(m_randomizedChunks[m_currentChunkCursor].m_randomizationWindow.m_end, requiredChunks.m_end);
+
+            // Update current cursor to the next sequence.
+            m_currentSequenceCursor++;
+            m_currentSampleCursor += sequenceLength;
+            if (sequenceOffsetInsideChunk + 1 >= m_randomizedChunks[m_currentChunkCursor].m_original->m_numberOfSequences)
+            {
+                // Moving to the next chunk,
+                // Be careful, this invalidates the sequence from above.
+                MoveChunkCursor();
+            }
         }
 
-        return result;
+        return totalSize;
     }
 
     // Move the chunk cursor to the next chunk, randomizing more sequences if necessary.
@@ -329,9 +343,11 @@ namespace Microsoft { namespace MSR { namespace CNTK {
 
         // TODO perhaps optimize this
         ClosedOpenChunkInterval window;
+        vector<RandomizedSequenceDescription> tmp;
         while (m_currentSampleCursor < sweepSampleOffset)
         {
-            GetNextSequenceDescriptions(1, window);
+            tmp.clear();
+            GetNextSequenceDescriptions(1, [](const RandomizedSequenceDescription*) { return true; }, window, tmp);
         }
 
         return m_currentSampleCursor;

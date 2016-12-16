@@ -41,15 +41,14 @@ ImageReader::ImageReader(const ConfigParameters& config)
     auto deserializer = std::make_shared<ImageDataDeserializer>(config);
 
     SequenceEnumeratorPtr randomizer;
+    bool useLocalTimeline = true;
     // Request multi-threaded randomizer operation to speed up CPU-intensive image-decoding and transformations.
     const bool multithreadedGetNextSequences = true;
     if (configHelper.ShouldRandomize())
     {
-        // We do not use legacy randomization.
-        bool useLegacyRandomization = false;
         // We do not do io prefetching, because chunks are single images currently.
         bool ioPrefetch = false;
-        randomizer = std::make_shared<BlockRandomizer>(0, 1, deserializer, ioPrefetch, useLegacyRandomization, multithreadedGetNextSequences);
+        randomizer = std::make_shared<BlockRandomizer>(0, 1, deserializer, ioPrefetch, useLocalTimeline, multithreadedGetNextSequences);
     }
     else
     {
@@ -77,7 +76,6 @@ ImageReader::ImageReader(const ConfigParameters& config)
     transformations.push_back(Transformation{ std::make_shared<CastTransformer>(featureStream), featureName });
 
     m_sequenceEnumerator = std::make_shared<TransformController>(transformations, randomizer);
-    bool useLocalTimeline = true;
     m_packer = std::make_shared<FramePacker>(
         m_sequenceEnumerator,
         m_streams,

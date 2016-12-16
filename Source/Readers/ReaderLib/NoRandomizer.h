@@ -34,6 +34,7 @@ public:
 
 private:
     // Gets next sequence descriptions with total size less than sampleCount.
+    void GetNextSequenceDescriptions(size_t sampleCount, std::vector<SequenceDescription>& result);
     std::vector<SequenceDescription> GetNextSequenceDescriptions(size_t sampleCount);
 
     // Get chunk index for the sample offset from the beginning of the sweep.
@@ -78,11 +79,18 @@ private:
     ChunkIdType m_currentChunkPosition;
 
     // Global sample position on the timeline.
-    // TODO: possible recalculate it base on samplePositionInEpoch.
     size_t m_globalSamplePosition;
+
+    bool m_useLocalTimeline;
+
+    // Used for decimation.
+    size_t m_globalSequencePosition;
 
     // Total number of samples in the sweep.
     size_t m_totalNumberOfSamples;
+
+    // Temp buffer to avoid allocations
+    std::vector<SequenceDescription> m_sequenceBuffer;
 };
 
 }}}

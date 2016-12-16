@@ -10,8 +10,8 @@
 
 namespace Microsoft { namespace MSR { namespace CNTK {
 
-    ChunkRandomizer::ChunkRandomizer(IDataDeserializerPtr deserializer, size_t randomizationRangeInSamples, bool legacy) :
-        m_deserializer(deserializer), m_legacy(legacy), m_randomizationRangeInSamples(randomizationRangeInSamples)
+    ChunkRandomizer::ChunkRandomizer(IDataDeserializerPtr deserializer, size_t randomizationRangeInSamples) :
+        m_deserializer(deserializer), m_randomizationRangeInSamples(randomizationRangeInSamples)
     {
         m_originalChunks = m_deserializer->GetChunkDescriptions();
         assert(m_originalChunks.size() < CHUNKID_MAX);
