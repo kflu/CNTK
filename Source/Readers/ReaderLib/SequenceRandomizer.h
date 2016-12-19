@@ -46,7 +46,7 @@ public:
     size_t Seek(size_t sweepSampleOffset, size_t sweep);
 
     // Gets the next randomized sequence descriptions not exceeding the sample count.
-    size_t SequenceRandomizer::GetNextSequenceDescriptions(
+    size_t GetNextSequenceDescriptions(
         size_t sampleCount,
         const std::function<bool(const RandomizedSequenceDescription* s)>& isWorkerSequence,
         ClosedOpenChunkInterval& requiredChunks,
