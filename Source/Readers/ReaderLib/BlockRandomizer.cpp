@@ -33,7 +33,8 @@ BlockRandomizer::BlockRandomizer(
       m_chunkRandomizer(std::make_shared<ChunkRandomizer>(deserializer, randomizationRangeInSamples)),
       m_multithreadedGetNextSequences(multithreadedGetNextSequence),
       m_prefetchedChunk(CHUNKID_MAX),
-      m_useLocalTimeline(useLocalTimeline)
+      m_useLocalTimeline(useLocalTimeline),
+      m_useChunkDecimation(false)
 {
     assert(deserializer != nullptr);
 
@@ -60,6 +61,7 @@ void BlockRandomizer::StartEpoch(const EpochConfiguration& config)
 {
     m_currentWindowRange = ClosedOpenChunkInterval{};
 
+    SetConfiguration(config);
     m_config = config;
     if (config.m_totalEpochSizeInSamples == requestDataSize)
     {
@@ -188,11 +190,16 @@ bool BlockRandomizer::GetNextSequenceDescriptions(size_t sampleCount, std::vecto
     assert(sampleCount != 0);
 
     // Randomizing sequences
-    std::function<bool(const RandomizedSequenceDescription* s)> localSequences;
-    if(m_useLocalTimeline)
-        localSequences = [this](const RandomizedSequenceDescription* s) { return s->m_chunk->m_chunkId % m_config.m_numberOfWorkers == m_config.m_workerRank; };
+    std::function<bool(const RandomizedSequenceDescription* s, size_t sweepIndex)> localSequences;
+    if (m_useLocalTimeline)
+    {
+        if (m_useChunkDecimation)
+            localSequences = [this](const RandomizedSequenceDescription* s, size_t) { return s->m_chunk->m_chunkId % m_config.m_numberOfWorkers == m_config.m_workerRank; };
+        else
+            localSequences = [this](const RandomizedSequenceDescription*, size_t sweepIndex) { return sweepIndex % m_config.m_numberOfWorkers == m_config.m_workerRank; };
+    }
     else
-        localSequences = [this](const RandomizedSequenceDescription*) { return true; };
+        localSequences = [this](const RandomizedSequenceDescription*, size_t) { return true; };
 
     size_t minibatchSize = m_sequenceRandomizer->GetNextSequenceDescriptions(
         sampleCount,
@@ -251,10 +258,9 @@ void BlockRandomizer::LoadDataChunks(const ClosedOpenChunkInterval& windowRange)
     for (size_t i = windowRange.m_begin; i < windowRange.m_end; ++i)
     {
         auto const& chunk = m_chunkRandomizer->GetRandomizedChunks()[i];
-        if (chunk.m_chunkId % m_config.m_numberOfWorkers != m_config.m_workerRank)
-        {
-            continue;
-        }
+        if ((!m_useLocalTimeline || m_useLocalTimeline && m_useChunkDecimation) 
+            && chunk.m_chunkId % m_config.m_numberOfWorkers != m_config.m_workerRank)
+                continue;
 
         auto it = m_chunks.find(chunk.m_original->m_id);
         if (it != m_chunks.end())
@@ -367,6 +373,16 @@ void BlockRandomizer::SetCurrentSamplePosition(size_t currentSamplePosition)
 void BlockRandomizer::SetConfiguration(const ReaderConfiguration& config)
 {
     *((ReaderConfiguration*)&m_config) = config;
+
+    if (m_chunkRandomizer->GetRandomizedChunks().size() < m_config.m_numberOfWorkers)
+    {
+        m_useChunkDecimation = false;
+        fprintf(stderr, "WARNING: Number of chunks is not enough for all workers to be busy, switching to decimation based on sequence position in sweep.\n");
+    }
+    else
+    {
+        m_useChunkDecimation = true;
+    }
 }
 
 }}}

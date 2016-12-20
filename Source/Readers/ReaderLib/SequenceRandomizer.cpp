@@ -66,7 +66,7 @@ namespace Microsoft { namespace MSR { namespace CNTK {
     // Gets next randomized sequence descriptions not exceeding the sample count.
     size_t SequenceRandomizer::GetNextSequenceDescriptions(
         size_t sampleCount, 
-        const std::function<bool(const RandomizedSequenceDescription* s)>& isWorkerSequence,
+        const std::function<bool(const RandomizedSequenceDescription* s, size_t)>& isWorkerSequence,
         ClosedOpenChunkInterval& requiredChunks,
         std::vector<RandomizedSequenceDescription>& sequences)
     {
@@ -85,7 +85,7 @@ namespace Microsoft { namespace MSR { namespace CNTK {
             size_t sequenceOffsetInsideChunk = m_currentSequenceCursor - m_randomizedChunks[m_currentChunkCursor].m_sequencePositionStart;
             const RandomizedSequenceDescription* sequence = &m_sequenceWindow[m_currentChunkCursor - m_chunkWindowBegin][sequenceOffsetInsideChunk];
             int sequenceLength = (int)sequence->m_numberOfSamples;
-            bool shouldCount = isWorkerSequence(sequence);
+            bool shouldCount = isWorkerSequence(sequence, m_currentSequenceCursor);
 
             if (shouldCount)
             {
@@ -347,7 +347,7 @@ namespace Microsoft { namespace MSR { namespace CNTK {
         while (m_currentSampleCursor < sweepSampleOffset)
         {
             tmp.clear();
-            GetNextSequenceDescriptions(1, [](const RandomizedSequenceDescription*) { return true; }, window, tmp);
+            GetNextSequenceDescriptions(1, [](const RandomizedSequenceDescription*, size_t) { return true; }, window, tmp);
         }
 
         return m_currentSampleCursor;

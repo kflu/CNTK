@@ -48,7 +48,7 @@ public:
     // Gets the next randomized sequence descriptions not exceeding the sample count.
     size_t GetNextSequenceDescriptions(
         size_t sampleCount,
-        const std::function<bool(const RandomizedSequenceDescription* s)>& isWorkerSequence,
+        const std::function<bool(const RandomizedSequenceDescription* s, size_t)>& isWorkerSequence,
         ClosedOpenChunkInterval& requiredChunks,
         std::vector<RandomizedSequenceDescription>& sequences);
 

@@ -85,12 +85,12 @@ void NoRandomizer::GetNextSequenceDescriptions(size_t sampleCount, std::vector<S
 
     int samples = (int)sampleCount;
 
-    bool decimated = false;
     do
     {
         const SequenceDescription& sequence = m_sequenceWindow[m_currentSequencePositionInChunk];
 
         // Decimate.
+        bool decimated = false;
         if (m_globalSequencePosition % m_config.m_numberOfWorkers == m_config.m_workerRank)
         {
             result.push_back(sequence);

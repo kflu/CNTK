@@ -154,6 +154,8 @@ private:
 
     // Flag indicating whether to use local timeline.
     bool m_useLocalTimeline;
+
+    bool m_useChunkDecimation;
 };
 
 }}}
