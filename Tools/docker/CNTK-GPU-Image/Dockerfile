@@ -155,6 +155,7 @@ RUN ln -s /usr/local/cuda/lib64/stubs/libnvidia-ml.so /usr/local/cuda/lib64/stub
 
 # Build CNTK
 RUN git clone --depth=1 -b master https://github.com/Microsoft/CNTK.git . && \
+    git co v2.0.beta5.0 && \
     CONFIGURE_OPTS="\
       --with-cuda=/usr/local/cuda \
       --with-gdk-include=/usr/local/cuda/include \
