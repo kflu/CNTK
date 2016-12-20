@@ -160,6 +160,7 @@ RUN git clone --depth=1 -b master https://github.com/Microsoft/CNTK.git . && \
       --with-gdk-include=/usr/local/cuda/include \
       --with-gdk-nvml-lib=/usr/local/cuda/lib64/stubs \
       --with-kaldi=${KALDI_PATH} \
+      --with-py-versions=34 \
       --with-py34-path=/root/anaconda3/envs/cntk-py34 \
       --with-cudnn=/usr/local \
       --with-nccl=${NCCL_PATH}" && \
