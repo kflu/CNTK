@@ -305,46 +305,6 @@ namespace CNTK
     /*static*/ const std::wstring CompositeFunction::InternalDefaultDynamicAxisName = L"*";
     /*static*/ const std::wstring CompositeFunction::InternalNoSequenceAxisName = L"__noSequenceAxis";
 
-    // Replace any PlaceHolder Variables in the graph of Functions underlying 'this' CompositeFunction. All PlaceHolder variables
-    // should have been replaced before performing any Forward compute of 'this' Function.
-    /*virtual*/ void CompositeFunction::ReplacePlaceholdersInPlace(const std::unordered_map<Variable, Variable>& placeholderReplacements,
-                                                                   std::unordered_set<const Function*>& visitedFunctions,
-                                                                   std::unordered_set<Variable>& replacedPlaceholders)
-    {
-        RootFunction()->ReplacePlaceholdersInPlace(placeholderReplacements, visitedFunctions, replacedPlaceholders);
-
-        // If any of the placeholders were replaced with Output variables, let's add the graph of function underneath each of those to 'm_allPrimitiveFunctions' set
-        for (auto replacedPlaceholder : replacedPlaceholders)
-        {
-            auto replacingVariable = placeholderReplacements.at(replacedPlaceholder);
-            if (replacingVariable.IsOutput())
-            {
-                auto ownerFunc = replacingVariable.Owner();
-                std::unordered_set<FunctionPtr> visitedFunctions2;
-                Collect(ownerFunc, visitedFunctions2);
-
-                // Add the newly visited functions to 'm_allPrimitiveFunctions' set
-                m_allPrimitiveFunctions.insert(visitedFunctions2.begin(), visitedFunctions2.end());
-            }
-        }
-        std::unordered_map<const Function*, size_t> functionVisitCounts;
-
-        // An arbitrary cap on changing output shape of recurrent nodes, to detect infinite inference loops
-        const size_t maxNumValidationPassesAllowed = 25;
-        bool recurrentNodeOutputModified = false;
-        size_t numValidationPasses = 0;
-        do
-        {
-            recurrentNodeOutputModified = false;
-            functionVisitCounts.clear();
-            RootFunction()->ValidateOrUpdateOutputs(functionVisitCounts, recurrentNodeOutputModified);
-            numValidationPasses++;
-        } while (recurrentNodeOutputModified && (numValidationPasses < maxNumValidationPassesAllowed));
-
-        if (numValidationPasses >= maxNumValidationPassesAllowed)
-            LogicError("A recurrent node output shape change happened in successive %d validation passes indicating a potential infinite inference loop!", (int)numValidationPasses);
-    }
-
     // Recursively create a sub-network of ComputationNode instances corresponding to the graph of Functions 
     // underlying the specified 'variable' and return the ComputationNode instance that corresponds to the 
     // top level 'variable'
@@ -1263,15 +1223,7 @@ namespace CNTK
 
         if (!missingRequiredArguments.empty())
         {
-            std::wstring missingRequiredArgumentNames;
-            for (auto missingRequiredArgument : missingRequiredArguments)
-            {
-                if (!missingRequiredArgumentNames.empty())
-                    missingRequiredArgumentNames += L", ";
-
-                missingRequiredArgumentNames += missingRequiredArgument.Name();
-            }
-
+            std::wstring missingRequiredArgumentNames = NamedListString(missingRequiredArguments);
             InvalidArgument("Function::Forward: Required arguments (%S) values that the requested output(s) depend on has not been provided", missingRequiredArgumentNames.c_str());
         }
 

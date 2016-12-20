@@ -598,6 +598,12 @@ namespace CNTK
         return{ OutputVariable(outputShape, outputDataType, owner, outputDynamicAxes, functionName.empty() ? L"" : functionName + L"_output") };
     }
 
+    /*virtual*/ std::vector<Variable> PrimitiveFunction::GetOutputVariables(bool inferDimensions)
+    {
+        auto inputs = Inputs();
+        return GetOutputVariables(m_op, inputs, this, m_attributes, inferDimensions, Name());
+    }
+
     static const std::wstring s_primitiveFunctionTypeValue = L"PrimitiveFunction";
 
     /*virtual*/ Dictionary PrimitiveFunction::Serialize() const 
@@ -637,7 +643,7 @@ namespace CNTK
         // The hard requirement that the serialization depends on is that
         // new op type values are only added to the end of the list, after Combine.
         // This also applies to other enums (DataType, VariableKind, etc.)
-        if (op > PrimitiveOpType::Pass)
+        if (op > PrimitiveOpType::Block)
         {
             LogicError("Unexpected op '%ls':'%u' (%s).", 
                         opKey.c_str(), 

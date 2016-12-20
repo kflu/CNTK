@@ -7,6 +7,7 @@
 #include "CNTKLibrary.h"
 #include "PrimitiveFunction.h"
 #include "CompositeFunction.h"
+#include "BlockFunction.h"
 
 using namespace Microsoft::MSR::CNTK;
 
@@ -64,54 +65,91 @@ namespace CNTK
 
     /*virtual*/ Function::~Function() {}
 
+    /*static*/ void Function::ReplacePlaceholderInPlace(Variable& var,
+                                                        const std::unordered_map<Variable, Variable>& placeholderReplacements,
+                                                        std::unordered_set<Variable>& replacedPlaceholders)
+    {
+        if (var.IsPlaceholder())
+        {
+            auto placeholder = var;
+            if (placeholderReplacements.find(placeholder) != placeholderReplacements.end())
+            {
+                var = placeholderReplacements.at(placeholder);
+                replacedPlaceholders.insert(placeholder);
+
+                // If shape or dynamic axes of the placeholder are known but unknown in the replacement, we update the replacement's shape/dynamic axes
+                if (var.Shape().IsUnknown() && !placeholder.Shape().IsUnknown())
+                    var.m_dataFields->m_shape = placeholder.Shape();
+
+                if ((var.DynamicAxes() == Axis::UnknownDynamicAxes()) && (placeholder.DynamicAxes() != Axis::UnknownDynamicAxes()))
+                    var.m_dataFields->m_dynamicAxes = placeholder.DynamicAxes();
+            }
+        }
+    }
+
     // Placeholders can be replaced incrementally - i.e. not all placeholders need to replaced in one go.
     // The only requirement is that they must all be replaced before making any 'Forward' calls on the Function instance.
     /*virtual*/ void Function::ReplacePlaceholdersInPlace(const std::unordered_map<Variable, Variable>& placeholderReplacements,
                                                           std::unordered_set<const Function*>& visitedFunctions,
                                                           std::unordered_set<Variable>& replacedPlaceholders)
     {
-        visitedFunctions.insert(this);
-
-        auto replacePlaceholder = [&placeholderReplacements, &replacedPlaceholders](Variable& var) {
-            if (var.IsPlaceholder())
-            {
-                auto placeholder = var;
-                if (placeholderReplacements.find(placeholder) != placeholderReplacements.end())
-                {
-                    var = placeholderReplacements.at(placeholder);
-                    replacedPlaceholders.insert(placeholder);
-
-                    // If shape or dynamic axes of the placeholder are known but unknown in the replacement, we update the replacement's shape/dynamic axes
-                    if (var.Shape().IsUnknown() && !placeholder.Shape().IsUnknown())
-                        var.m_dataFields->m_shape = placeholder.Shape();
-
-                    if ((var.DynamicAxes() == Axis::UnknownDynamicAxes()) && (placeholder.DynamicAxes() != Axis::UnknownDynamicAxes()))
-                        var.m_dataFields->m_dynamicAxes = placeholder.DynamicAxes();
-                }
-            }
-        };
-
-        for (auto& inputVar : m_inputs)
+        if (RootFunction() != shared_from_this())
+            RootFunction()->ReplacePlaceholdersInPlace(placeholderReplacements, visitedFunctions, replacedPlaceholders);
+        else
         {
-            replacePlaceholder(inputVar);
+            visitedFunctions.insert(this);
 
-            if (inputVar.IsOutput() && (visitedFunctions.find(inputVar.Owner().get()) == visitedFunctions.end()))
+            for (auto& inputVar : m_inputs)
             {
-                inputVar.Owner()->ReplacePlaceholdersInPlace(placeholderReplacements, visitedFunctions, replacedPlaceholders);
+                ReplacePlaceholderInPlace(inputVar, placeholderReplacements, replacedPlaceholders);
+
+                if (inputVar.IsOutput() && (visitedFunctions.find(inputVar.Owner().get()) == visitedFunctions.end()))
+                    inputVar.Owner()->ReplacePlaceholdersInPlace(placeholderReplacements, visitedFunctions, replacedPlaceholders);
             }
         }
 
-        auto primitiveFunction = dynamic_cast<PrimitiveFunction*>(this);
-        if (primitiveFunction != nullptr && primitiveFunction->OpType() == PrimitiveOpType::Combine)
+        OnPlaceholdersReplaced(placeholderReplacements, replacedPlaceholders);
+    }
+
+    bool Function::ValidateOrUpdateOutput(const Variable& currentOutputVar, const Variable& newOutputVar, bool alwaysUpdate)
+    {
+        bool updated = false;
+        if (!alwaysUpdate)
         {
-            // Again, combine needs a special treatment, since m_inputs and m_outputs are two 
-            // different vectors, and m_outputs is created by copying m_inputs content, there
-            // still can be placeholders cached in m_outputs, need to replace those as well.
-            for (auto& outputVar : m_outputs)
+            if (!newOutputVar.Shape().IsUnknown() && (currentOutputVar.Shape() != newOutputVar.Shape()))
             {
-                replacePlaceholder(outputVar);
+                updated = true;
+                currentOutputVar.m_dataFields->m_shape = newOutputVar.Shape();
+            }
+
+            if ((currentOutputVar.GetDataType() == DataType::Unknown) && (currentOutputVar.GetDataType() != newOutputVar.GetDataType()))
+            {
+                updated = true;
+                currentOutputVar.m_dataFields->m_dataType = newOutputVar.GetDataType();
+            }
+
+            if ((currentOutputVar.DynamicAxes() == Axis::UnknownDynamicAxes()) && (currentOutputVar.DynamicAxes() != newOutputVar.DynamicAxes()))
+            {
+                updated = true;
+                currentOutputVar.m_dataFields->m_dynamicAxes = newOutputVar.DynamicAxes();
+            }
+
+            if ((!newOutputVar.Shape().IsUnknown() && (currentOutputVar.Shape() != newOutputVar.Shape())) ||
+                ((newOutputVar.GetDataType() != DataType::Unknown) && (currentOutputVar.GetDataType() != newOutputVar.GetDataType())) ||
+                ((newOutputVar.DynamicAxes() != Axis::UnknownDynamicAxes()) && (currentOutputVar.DynamicAxes() != newOutputVar.DynamicAxes())))
+            {
+                InvalidArgument("Inconsistency in output variable shape, DataType or Dynamic axes computed after replaced placeholders vs. existing output properties, for the Recurrent Function");
             }
         }
+        else
+        {
+            currentOutputVar.m_dataFields->m_shape = newOutputVar.Shape();
+            currentOutputVar.m_dataFields->m_dataType = newOutputVar.GetDataType();
+            currentOutputVar.m_dataFields->m_dynamicAxes = newOutputVar.DynamicAxes();
+            updated = true;
+        }
+
+        return updated;
     }
 
     void Function::ValidateOrUpdateOutputs(std::unordered_map<const Function*, size_t>& visitedFunctions, bool& recurrentNodeOutputModified)
@@ -136,46 +174,16 @@ namespace CNTK
             }
         }
 
-        auto outputsUsingNewInputs = PrimitiveFunction::GetOutputVariables(primitiveFunction->OpType(), m_inputs, this, primitiveFunction->m_attributes, true, primitiveFunction->Name());
+        auto outputsUsingNewInputs = primitiveFunction->GetOutputVariables(true);
         auto currentOutputs = Outputs();
         for (size_t i = 0; i < currentOutputs.size(); ++i)
         {
             auto newOutputVar = outputsUsingNewInputs[i];
             auto currentOutputVar = currentOutputs[i];
 
-            if (visitedFunctions[this] > 1)
-            {
-                if (!newOutputVar.Shape().IsUnknown() && (currentOutputVar.Shape() != newOutputVar.Shape()))
-                {
-                    recurrentNodeOutputModified = true;
-                    currentOutputVar.m_dataFields->m_shape = newOutputVar.Shape();
-                }
-
-                if ((currentOutputVar.GetDataType() == DataType::Unknown) && (currentOutputVar.GetDataType() != newOutputVar.GetDataType()))
-                {
-                    recurrentNodeOutputModified = true;
-                    currentOutputVar.m_dataFields->m_dataType = newOutputVar.GetDataType();
-                }
-
-                if ((currentOutputVar.DynamicAxes() == Axis::UnknownDynamicAxes()) && (currentOutputVar.DynamicAxes() != newOutputVar.DynamicAxes()))
-                {
-                    recurrentNodeOutputModified = true;
-                    currentOutputVar.m_dataFields->m_dynamicAxes = newOutputVar.DynamicAxes();
-                }
-
-                if ((!newOutputVar.Shape().IsUnknown() && (currentOutputVar.Shape() != newOutputVar.Shape())) ||
-                    ((newOutputVar.GetDataType() != DataType::Unknown) && (currentOutputVar.GetDataType() != newOutputVar.GetDataType())) ||
-                    ((newOutputVar.DynamicAxes() != Axis::UnknownDynamicAxes()) && (currentOutputVar.DynamicAxes() != newOutputVar.DynamicAxes())))
-                {
-                    InvalidArgument("Inconsistency in output variable shape, DataType or Dynamic axes computed after replaced placeholders vs. existing output properties, for the Recurrent Function");
-                }
-            }
-            else
-            {
-                currentOutputVar.m_dataFields->m_shape = newOutputVar.Shape();
-                currentOutputVar.m_dataFields->m_dataType = newOutputVar.GetDataType();
-                currentOutputVar.m_dataFields->m_dynamicAxes = newOutputVar.DynamicAxes();
-            }
+            bool isRecurrent = (visitedFunctions[this] > 1);
+            bool outputUpdated = ValidateOrUpdateOutput(currentOutputVar, newOutputVar, !isRecurrent);
+            recurrentNodeOutputModified = isRecurrent && outputUpdated;
         }
     }
 
@@ -311,6 +319,25 @@ namespace CNTK
         std::unordered_set<const Function*> visitedFunctions;
         std::unordered_set<Variable> replacedPlaceholders;
         ReplacePlaceholdersInPlace(placeholderReplacements, visitedFunctions, replacedPlaceholders);
+
+        // Validate/update the output shapes, data types etc. to reflect any changes
+        // in inputs due to placeholder replacements
+        std::unordered_map<const Function*, size_t> functionVisitCounts;
+
+        // An arbitrary cap on changing output shape of recurrent nodes, to detect infinite inference loops
+        const size_t maxNumValidationPassesAllowed = 25;
+        bool recurrentNodeOutputModified = false;
+        size_t numValidationPasses = 0;
+        do
+        {
+            recurrentNodeOutputModified = false;
+            functionVisitCounts.clear();
+            RootFunction()->ValidateOrUpdateOutputs(functionVisitCounts, recurrentNodeOutputModified);
+            numValidationPasses++;
+        } while (recurrentNodeOutputModified && (numValidationPasses < maxNumValidationPassesAllowed));
+
+        if (numValidationPasses >= maxNumValidationPassesAllowed)
+            LogicError("A recurrent node output shape change happened in successive %d validation passes indicating a potential infinite inference loop!", (int)numValidationPasses);
 
         for (auto replacementPair : placeholderReplacements)
         {
