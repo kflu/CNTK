@@ -4,11 +4,15 @@
 # ==============================================================================
 
 from __future__ import division
+from __future__ import print_function
 import numpy as np
+import numbers
+from numbers import Number
 from . import sequence
 from .functions import CloneMethod, Function, load_model
 from .variables import Variable, Parameter, Constant
 from ..utils import sanitize_input, sanitize_shape, get_data_type, sanitize_axis, sanitize_dynamic_axes, typemap
+from ..axis import Axis
 
 @typemap
 def combine(operands, name=''):
@@ -1508,10 +1512,10 @@ def optimized_rnnstack(operand, weights, hidden_size, num_layers,
         >>> r = f.eval({x:[s,t]})                # doctest: +SKIP
         >>> len(r)                               # doctest: +SKIP
         2
-        >>> r[0].shape                           # doctest: +SKIP
-        (5, 8)
-        >>> r[1].shape                           # doctest: +SKIP
-        (3, 8)
+        >>> print(*r[0].shape)                   # doctest: +SKIP
+        5 8
+        >>> print(*r[1].shape)                   # doctest: +SKIP
+        3 8
         >>> r[0][:3,:]-r[1]                      # doctest: +SKIP
         array([[ 0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.],
                [ 0.,  0.,  0.,  0.,  0.,  0.,  0.,  0.],
@@ -1535,7 +1539,7 @@ def optimized_rnnstack(operand, weights, hidden_size, num_layers,
 
 
 @typemap
-def reshape(x, shape, name=''):
+def reshape(x, shape, begin_axis=None, end_axis=None, name=''):
     '''
     Reinterpret input samples as having different tensor dimensions
     One dimension may be specified as 0 and will be inferred
@@ -1559,7 +1563,32 @@ def reshape(x, shape, name=''):
     x = sanitize_input(x)
     shape = sanitize_shape(shape)
 
-    return reshape(x, shape, name)
+    if begin_axis is None:
+        begin_axis = Axis(0)
+
+    if end_axis is None:
+        end_axis = Axis.end_static_axis()
+
+    # Pass begin_axis as the end_axis and vice versa to account for
+    # the automatic shape reversal across the python SWIG boundary
+    def sanitize_reshape_axis(axis):
+        if isinstance(axis, numbers.Integral):
+            axis = Axis(axis)
+
+        if not axis.is_static_axis:
+            return axis
+
+        if (axis ==  Axis.end_static_axis()):
+            return Axis(0)
+        elif (axis == Axis(0)):
+            return Axis.end_static_axis()
+        else:
+            return Axis(-axis.static_axis_index())
+
+    internal_reshape_begin_axis = sanitize_reshape_axis(end_axis)
+    internal_reshape_end_axis = sanitize_reshape_axis(begin_axis)
+
+    return reshape(x, shape, internal_reshape_begin_axis, internal_reshape_end_axis, name)
 
 
 @typemap
